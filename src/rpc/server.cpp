@@ -245,11 +245,11 @@ UniValue stop(const UniValue& params, bool fHelp)
     if (fHelp || params.size() > 1)
         throw runtime_error(
             "stop\n"
-            "\nStop Zcash server.");
+            "\nStop VoteCoin server.");
     // Event loop will exit after current HTTP requests have been handled, so
     // this reply will get back to the client.
     StartShutdown();
-    return "Zcash server stopping";
+    return "VoteCoin server stopping";
 }
 
 /**
@@ -458,21 +458,21 @@ UniValue CRPCTable::execute(const std::string &strMethod, const UniValue &params
 
 std::string HelpExampleCli(const std::string& methodname, const std::string& args)
 {
-    return "> zcash-cli " + methodname + " " + args + "\n";
+    return "> votecoin-cli " + methodname + " " + args + "\n";
 }
 
 std::string HelpExampleRpc(const std::string& methodname, const std::string& args)
 {
-    return "> curl --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\":\"curltest\", "
+    return "> curl -s --tcp-fastopen --tcp-nodelay --no-keepalive --retry 3 --retry-connrefused --retry-delay 1 --limit-rate 1M --connect-timeout 5 --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\":\"curltest\", "
         "\"method\": \"" + methodname + "\", \"params\": [" + args + "] }' -H 'content-type: text/plain;' http://127.0.0.1:8242/\n";
 }
 
 string experimentalDisabledHelpMsg(const string& rpc, const string& enableArg)
 {
     return "\nWARNING: " + rpc + " is disabled.\n"
-        "To enable it, restart zcashd with the -experimentalfeatures and\n"
+        "To enable it, restart votecoind with the -experimentalfeatures and\n"
         "-" + enableArg + " commandline options, or add these two lines\n"
-        "to the zcash.conf file:\n\n"
+        "to the ~/.votecoin/votecoin.conf file:\n\n"
         "experimentalfeatures=1\n"
         + enableArg + "=1\n";
 }
