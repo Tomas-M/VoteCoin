@@ -25,7 +25,7 @@ if [[ -z "${MAKE-}" ]]; then
 fi
 
 # Allow overrides to $BUILD and $HOST for porters. Most users will not need it.
-#   BUILD=i686-pc-linux-gnu ./zcutil/build.sh
+#   BUILD=i686-pc-linux-gnu ./zcutil/build.sh -j$(nproc)
 if [[ -z "${BUILD-}" ]]; then
     BUILD="$(./depends/config.guess)"
 fi
@@ -48,16 +48,16 @@ $0 --help
 
 $0 [ --enable-lcov || --disable-tests ] [ --disable-mining ] [ --enable-proton ] [ MAKEARGS... ]
   Build Zcash and most of its transitive dependencies from
-  source. MAKEARGS are applied to both dependencies and Zcash itself.
+  source. MAKEARGS are applied to both dependencies and VoteCoin itself.
 
-  If --enable-lcov is passed, Zcash is configured to add coverage
+  If --enable-lcov is passed, VoteCoin is configured to add coverage
   instrumentation, thus enabling "make cov" to work.
-  If --disable-tests is passed instead, the Zcash tests are not built.
+  If --disable-tests is passed instead, the VoteCoin tests are not built.
 
-  If --disable-mining is passed, Zcash is configured to not build any mining
+  If --disable-mining is passed, VoteCoin is configured to not build any mining
   code. It must be passed after the test arguments, if present.
 
-  If --enable-proton is passed, Zcash is configured to build the Apache Qpid Proton
+  If --enable-proton is passed, VoteCoin is configured to build the Apache Qpid Proton
   library required for AMQP support. This library is not built by default.
   It must be passed after the test/mining arguments, if present.
 EOF
