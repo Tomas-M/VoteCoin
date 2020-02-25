@@ -32,6 +32,6 @@ cp -f zcash-tx votecoin-tx
 
 printf "\n"
 printf "--------------------------------------------------------------------------\n"
-printf "Compilation complete. Now you can run ./src/votecoind to start the daemon.\n"
+printf "Compilation complete. Now you can run ../src/votecoind to start the daemon.\n"
 printf "It will use configuration file from ~/.votecoin/votecoin.conf\n"
 printf "\n"
