@@ -27,7 +27,7 @@ cp -f zcash-tx votecoin-tx
 cp -f zcashd votecoind
 
 lines 1
-printf "Compilation rebuild complete. Now you can run ./src/votecoind to start the daemon."
+printf "Compilation rebuild complete. Now you can run ../src/votecoind to start the daemon."
 lines 1
 printf "It will use configuration file from ~/.votecoin/votecoin.conf"
 lines 2
