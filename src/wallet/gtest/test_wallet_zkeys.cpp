@@ -16,10 +16,13 @@
  * LoadSaplingIncomingViewingKey()
  * LoadSaplingZKeyMetadata()
  */
-TEST(wallet_zkeys_tests, StoreAndLoadSaplingZkeys) {
+
+TEST(WalletZkeysTest, StoreAndLoadSaplingZkeys) {
+
     SelectParams(CBaseChainParams::MAIN);
 
     CWallet wallet;
+    LOCK(wallet.cs_wallet);
 
     // wallet should be empty
     std::set<libzcash::SaplingPaymentAddress> addrs;
@@ -47,15 +50,15 @@ TEST(wallet_zkeys_tests, StoreAndLoadSaplingZkeys) {
     // manually add new spending key to wallet
     auto m = libzcash::SaplingExtendedSpendingKey::Master(seed);
     auto sk = m.Derive(0);
-    ASSERT_TRUE(wallet.AddSaplingZKey(sk, sk.DefaultAddress()));
+    ASSERT_TRUE(wallet.AddSaplingZKey(sk));
 
     // verify wallet did add it
-    auto fvk = sk.expsk.full_viewing_key();
-    ASSERT_TRUE(wallet.HaveSaplingSpendingKey(fvk));
+    auto extfvk = sk.ToXFVK();
+    ASSERT_TRUE(wallet.HaveSaplingSpendingKey(extfvk));
 
     // verify spending key stored correctly
     libzcash::SaplingExtendedSpendingKey keyOut;
-    wallet.GetSaplingSpendingKey(fvk, keyOut);
+    wallet.GetSaplingSpendingKey(extfvk, keyOut);
     ASSERT_EQ(sk, keyOut);
 
     // verify there are two keys
@@ -75,7 +78,7 @@ TEST(wallet_zkeys_tests, StoreAndLoadSaplingZkeys) {
     EXPECT_FALSE(wallet.HaveSaplingIncomingViewingKey(dpa));
 
     // manually add a diversified address
-    auto ivk = fvk.in_viewing_key();
+    auto ivk = extfvk.fvk.in_viewing_key();
     EXPECT_TRUE(wallet.AddSaplingIncomingViewingKey(ivk, dpa));
 
     // verify wallet did add it
@@ -90,7 +93,7 @@ TEST(wallet_zkeys_tests, StoreAndLoadSaplingZkeys) {
     auto ivk2 = sk2.expsk.full_viewing_key().in_viewing_key();
     int64_t now = GetTime();
     CKeyMetadata meta(now);
-    ASSERT_TRUE(wallet.LoadSaplingZKeyMetadata(ivk2, meta));
+    wallet.LoadSaplingZKeyMetadata(ivk2, meta);
 
     // check metadata is the same
     ASSERT_EQ(wallet.mapSaplingZKeyMetadata[ivk2].nCreateTime, now);
@@ -110,10 +113,11 @@ TEST(wallet_zkeys_tests, StoreAndLoadSaplingZkeys) {
  * LoadZKey()
  * LoadZKeyMetadata()
  */
-TEST(wallet_zkeys_tests, store_and_load_zkeys) {
+TEST(WalletZkeysTest, StoreAndLoadZkeys) {
     SelectParams(CBaseChainParams::MAIN);
 
     CWallet wallet;
+    LOCK(wallet.cs_wallet);
 
     // wallet should be empty
     std::set<libzcash::SproutPaymentAddress> addrs;
@@ -154,7 +158,7 @@ TEST(wallet_zkeys_tests, store_and_load_zkeys) {
     addr = sk.address();
     int64_t now = GetTime();
     CKeyMetadata meta(now);
-    ASSERT_TRUE(wallet.LoadZKeyMetadata(addr, meta));
+    wallet.LoadZKeyMetadata(addr, meta);
 
     // check metadata is the same
     CKeyMetadata m= wallet.mapSproutZKeyMetadata[addr];
@@ -167,10 +171,11 @@ TEST(wallet_zkeys_tests, store_and_load_zkeys) {
  * RemoveSproutViewingKey()
  * LoadSproutViewingKey()
  */
-TEST(wallet_zkeys_tests, StoreAndLoadViewingKeys) {
+TEST(WalletZkeysTest, StoreAndLoadViewingKeys) {
     SelectParams(CBaseChainParams::MAIN);
 
     CWallet wallet;
+    LOCK(wallet.cs_wallet);
 
     // wallet should be empty
     std::set<libzcash::SproutPaymentAddress> addrs;
@@ -212,7 +217,7 @@ TEST(wallet_zkeys_tests, StoreAndLoadViewingKeys) {
  * This test covers methods on CWalletDB
  * WriteZKey()
  */
-TEST(wallet_zkeys_tests, write_zkey_direct_to_db) {
+TEST(WalletZkeysTest, WriteZkeyDirectToDb) {
     SelectParams(CBaseChainParams::TESTNET);
 
     // Get temporary and unique path for file.
@@ -223,6 +228,7 @@ TEST(wallet_zkeys_tests, write_zkey_direct_to_db) {
 
     bool fFirstRun;
     CWallet wallet("wallet.dat");
+    LOCK(wallet.cs_wallet);
     ASSERT_EQ(DB_LOAD_OK, wallet.LoadWallet(fFirstRun));
 
     // No default CPubKey set
@@ -284,7 +290,7 @@ TEST(wallet_zkeys_tests, write_zkey_direct_to_db) {
  * This test covers methods on CWalletDB
  * WriteSproutViewingKey()
  */
-TEST(wallet_zkeys_tests, WriteViewingKeyDirectToDB) {
+TEST(WalletZkeysTest, WriteViewingKeyDirectToDB) {
     SelectParams(CBaseChainParams::TESTNET);
 
     // Get temporary and unique path for file.
@@ -295,6 +301,7 @@ TEST(wallet_zkeys_tests, WriteViewingKeyDirectToDB) {
 
     bool fFirstRun;
     CWallet wallet("wallet-vkey.dat");
+    LOCK(wallet.cs_wallet);
     ASSERT_EQ(DB_LOAD_OK, wallet.LoadWallet(fFirstRun));
 
     // No default CPubKey set
@@ -329,7 +336,9 @@ TEST(wallet_zkeys_tests, WriteViewingKeyDirectToDB) {
 /**
  * This test covers methods on CWalletDB to load/save crypted z keys.
  */
-TEST(wallet_zkeys_tests, write_cryptedzkey_direct_to_db) {
+/* TODO: Uncomment during PR for #3388
+TEST(WalletZkeysTest, WriteCryptedzkeyDirectToDb) {
+
     SelectParams(CBaseChainParams::TESTNET);
 
     // Get temporary and unique path for file.
@@ -340,6 +349,7 @@ TEST(wallet_zkeys_tests, write_cryptedzkey_direct_to_db) {
 
     bool fFirstRun;
     CWallet wallet("wallet_crypted.dat");
+    LOCK(wallet.cs_wallet);
     ASSERT_EQ(DB_LOAD_OK, wallet.LoadWallet(fFirstRun));
 
     // No default CPubKey set
@@ -414,6 +424,7 @@ TEST(wallet_zkeys_tests, WriteCryptedSaplingZkeyDirectToDb) {
 
     bool fFirstRun;
     CWallet wallet("wallet_crypted_sapling.dat");
+    LOCK(wallet.cs_wallet);
     ASSERT_EQ(DB_LOAD_OK, wallet.LoadWallet(fFirstRun));
 
      // No default CPubKey set
@@ -479,7 +490,6 @@ TEST(wallet_zkeys_tests, WriteCryptedSaplingZkeyDirectToDb) {
     // spending key is crypted, so we can't extract valid payment address
     libzcash::SaplingExtendedSpendingKey keyOut;
     EXPECT_FALSE(wallet2.GetSaplingExtendedSpendingKey(address, keyOut));
-    ASSERT_FALSE(address == keyOut.DefaultAddress());
 
     // address -> ivk mapping is not crypted
     libzcash::SaplingIncomingViewingKey ivkOut;

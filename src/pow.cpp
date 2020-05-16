@@ -12,8 +12,8 @@
 #include "primitives/block.h"
 #include "streams.h"
 #include "uint256.h"
-#include "util.h"
 
+#include <librustzcash.h>
 #include "sodium.h"
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
@@ -71,9 +71,7 @@ unsigned int CalculateNextWorkRequired(arith_uint256 bnAvg,
     // Limit adjustment step
     // Use medians to prevent time-warp attacks
     int64_t nActualTimespan = nLastBlockTime - nFirstBlockTime;
-    LogPrint("pow", "  nActualTimespan = %d  before dampening\n", nActualTimespan);
     nActualTimespan = averagingWindowTimespan + (nActualTimespan - averagingWindowTimespan)/4;
-    LogPrint("pow", "  nActualTimespan = %d  before bounds\n", nActualTimespan);
 
     if (nActualTimespan < minActualTimespan) {
         nActualTimespan = minActualTimespan;
@@ -92,16 +90,10 @@ unsigned int CalculateNextWorkRequired(arith_uint256 bnAvg,
         bnNew = bnPowLimit;
     }
 
-    /// debug print
-    LogPrint("pow", "GetNextWorkRequired RETARGET\n");
-    LogPrint("pow", "params.AveragingWindowTimespan(%d) = %d    nActualTimespan = %d\n", nextHeight, averagingWindowTimespan, nActualTimespan);
-    LogPrint("pow", "Current average: %08x  %s\n", bnAvg.GetCompact(), bnAvg.ToString());
-    LogPrint("pow", "After:  %08x  %s\n", bnNew.GetCompact(), bnNew.ToString());
-
     return bnNew.GetCompact();
 }
 
-bool CheckEquihashSolution(const CBlockHeader *pblock, const Consensus::Params& params)
+bool CheckEquihashSolution(const CBlockHeader *pblock, int nHeight, const Consensus::Params& params)
 {
     unsigned int n = params.nEquihashN;
     unsigned int k = params.nEquihashK;
@@ -115,6 +107,17 @@ bool CheckEquihashSolution(const CBlockHeader *pblock, const Consensus::Params& 
     // I||V
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
     ss << I;
+
+    // From Heartwood activation, check with the Rust validator
+    if (params.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HEARTWOOD)) {
+        return librustzcash_eh_isvalid(
+            n, k,
+            (unsigned char*)&ss[0], ss.size(),
+            pblock->nNonce.begin(), pblock->nNonce.size(),
+            pblock->nSolution.data(), pblock->nSolution.size());
+    }
+
+    // Before Heartwood activation, check with the C++ validator
     ss << pblock->nNonce;
 
     // H(I||V||...
@@ -138,11 +141,11 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&
 
     // Check range
     if (fNegative || bnTarget == 0 || fOverflow || bnTarget > UintToArith256(params.powLimit))
-        return error("CheckProofOfWork(): nBits below minimum work");
+        return false;
 
     // Check proof of work matches claimed amount
     if (UintToArith256(hash) > bnTarget)
-        return error("CheckProofOfWork(): hash doesn't match nBits");
+        return false;
 
     return true;
 }

@@ -13,6 +13,7 @@
 #include "main.h"
 #include "merkleblock.h"
 #include "net.h"
+#include "policy/policy.h"
 #include "primitives/transaction.h"
 #include "rpc/server.h"
 #include "script/script.h"
@@ -137,7 +138,7 @@ UniValue TxShieldedOutputsToJSON(const CTransaction& tx) {
     for (const OutputDescription& outputDesc : tx.vShieldedOutput) {
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("cv", outputDesc.cv.GetHex()));
-        obj.push_back(Pair("cmu", outputDesc.cm.GetHex()));
+        obj.push_back(Pair("cmu", outputDesc.cmu.GetHex()));
         obj.push_back(Pair("ephemeralKey", outputDesc.ephemeralKey.GetHex()));
         obj.push_back(Pair("encCiphertext", HexStr(outputDesc.encCiphertext.begin(), outputDesc.encCiphertext.end())));
         obj.push_back(Pair("outCiphertext", HexStr(outputDesc.outCiphertext.begin(), outputDesc.outCiphertext.end())));
@@ -296,7 +297,7 @@ UniValue getrawtransaction(const UniValue& params, bool fHelp)
             "         \"reqSigs\" : n,            (numeric) The required sigs\n"
             "         \"type\" : \"pubkeyhash\",  (string) The type, eg 'pubkeyhash'\n"
             "         \"addresses\" : [           (json array of string)\n"
-            "           \"votecoinaddress\"          (string) VoteCoin address\n"
+            "           \"zcashaddress\"          (string) Zcash address\n"
             "           ,...\n"
             "         ]\n"
             "       }\n"
@@ -502,7 +503,7 @@ UniValue createrawtransaction(const UniValue& params, bool fHelp)
             "     ]\n"
             "2. \"addresses\"           (string, required) a json object with addresses as keys and amounts as values\n"
             "    {\n"
-            "      \"address\": x.xxx   (numeric, required) The key is the VoteCoin address, the value is the " + CURRENCY_UNIT + " amount\n"
+            "      \"address\": x.xxx   (numeric, required) The key is the Zcash address, the value is the " + CURRENCY_UNIT + " amount\n"
             "      ,...\n"
             "    }\n"
             "3. locktime              (numeric, optional, default=0) Raw locktime. Non-0 value also locktime-activates inputs\n"
@@ -711,7 +712,7 @@ UniValue decodescript(const UniValue& params, bool fHelp)
             "  \"type\":\"type\", (string) The output type\n"
             "  \"reqSigs\": n,    (numeric) The required signatures\n"
             "  \"addresses\": [   (json array of string)\n"
-            "     \"address\"     (string) VoteCoin address\n"
+            "     \"address\"     (string) Zcash address\n"
             "     ,...\n"
             "  ],\n"
             "  \"p2sh\",\"address\" (string) script address\n"

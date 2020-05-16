@@ -61,6 +61,7 @@ public:
         SAPLING_FULL_VIEWING_KEY,
         SAPLING_INCOMING_VIEWING_KEY,
         SAPLING_EXTENDED_SPEND_KEY,
+        SAPLING_EXTENDED_FVK,
 
         MAX_BECH32_TYPES
     };
@@ -101,7 +102,7 @@ public:
     CScript GetFoundersRewardScriptAtHeight(int height) const;
     std::string GetFoundersRewardAddressAtIndex(int i) const;
     /** Enforce coinbase consensus rule in regtest mode */
-    void SetRegTestCoinbaseMustBeProtected() { consensus.fCoinbaseMustBeProtected = true; }
+    void SetRegTestCoinbaseMustBeShielded() { consensus.fCoinbaseMustBeShielded = true; }
 protected:
     CChainParams() {}
 
@@ -139,17 +140,16 @@ protected:
  */
 const CChainParams &Params();
 
-/** Return parameters for the given network. */
-CChainParams &Params(CBaseChainParams::Network network);
-
-/** Sets the params returned by Params() to those for the given network. */
-void SelectParams(CBaseChainParams::Network network);
+/**
+ * @returns CChainParams for the given BIP70 chain name.
+ */
+CChainParams& Params(const std::string& chain);
 
 /**
- * Looks for -regtest or -testnet and then calls SelectParams as appropriate.
- * Returns false if an invalid combination is given.
+ * Sets the params returned by Params() to those for the given BIP70 chain name.
+ * @throws std::runtime_error when the chain is not supported.
  */
-bool SelectParamsFromCommandLine();
+void SelectParams(const std::string& chain);
 
 /**
  * Allows modifying the network upgrade regtest parameters.

@@ -9,6 +9,7 @@
 #include "asyncrpcqueue.h"
 #include "consensus/upgrades.h"
 #include "core_io.h"
+#include "experimental_features.h"
 #include "init.h"
 #include "key_io.h"
 #include "main.h"
@@ -91,7 +92,7 @@ AsyncRPCOperation_shieldcoinbase::AsyncRPCOperation_shieldcoinbase(
     lock_utxos();
 
     // Enable payment disclosure if requested
-    paymentDisclosureMode = fExperimentalMode && GetBoolArg("-paymentdisclosure", false);
+    paymentDisclosureMode = fExperimentalPaymentDisclosure;
 }
 
 AsyncRPCOperation_shieldcoinbase::~AsyncRPCOperation_shieldcoinbase() {
@@ -176,20 +177,6 @@ bool AsyncRPCOperation_shieldcoinbase::main_impl() {
     CAmount minersFee = fee_;
 
     size_t numInputs = inputs_.size();
-
-    // Check mempooltxinputlimit to avoid creating a transaction which the local mempool rejects
-    size_t limit = (size_t)GetArg("-mempooltxinputlimit", 0);
-    {
-        LOCK(cs_main);
-        if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height() + 1, Consensus::UPGRADE_OVERWINTER)) {
-            limit = 0;
-        }
-    }
-    if (limit>0 && numInputs > limit) {
-        throw JSONRPCError(RPC_WALLET_ERROR,
-            strprintf("Number of inputs %d is greater than mempooltxinputlimit of %d",
-            numInputs, limit));
-    }
 
     CAmount targetAmount = 0;
     for (ShieldCoinbaseUTXO & utxo : inputs_) {

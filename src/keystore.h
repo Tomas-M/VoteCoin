@@ -13,7 +13,6 @@
 #include "sync.h"
 #include "zcash/Address.hpp"
 #include "zcash/NoteEncryption.hpp"
-#include "zcash/zip32.h"
 
 #include <boost/signals2/signal.hpp>
 #include <boost/variant.hpp>
@@ -23,7 +22,6 @@ class CKeyStore
 {
 protected:
     mutable CCriticalSection cs_KeyStore;
-    mutable CCriticalSection cs_SpendingKeyStore;
 
 public:
     virtual ~CKeyStore() {}
@@ -42,7 +40,7 @@ public:
     virtual bool HaveKey(const CKeyID &address) const =0;
     virtual bool GetKey(const CKeyID &address, CKey& keyOut) const =0;
     virtual void GetKeys(std::set<CKeyID> &setAddress) const =0;
-    virtual bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const;
+    virtual bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const =0;
 
     //! Support for BIP 0013 : see https://github.com/bitcoin/bips/blob/master/bip-0013.mediawiki
     virtual bool AddCScript(const CScript& redeemScript) =0;
@@ -64,23 +62,22 @@ public:
     virtual void GetSproutPaymentAddresses(std::set<libzcash::SproutPaymentAddress> &setAddress) const =0;
     
     //! Add a Sapling spending key to the store.
-    virtual bool AddSaplingSpendingKey(
-        const libzcash::SaplingExtendedSpendingKey &sk,
-        const libzcash::SaplingPaymentAddress &defaultAddr) =0;
+    virtual bool AddSaplingSpendingKey(const libzcash::SaplingExtendedSpendingKey &sk) =0;
     
     //! Check whether a Sapling spending key corresponding to a given Sapling viewing key is present in the store.
-    virtual bool HaveSaplingSpendingKey(const libzcash::SaplingFullViewingKey &fvk) const =0;
-    virtual bool GetSaplingSpendingKey(const libzcash::SaplingFullViewingKey &fvk, libzcash::SaplingExtendedSpendingKey& skOut) const =0;
+    virtual bool HaveSaplingSpendingKey(
+        const libzcash::SaplingExtendedFullViewingKey &extfvk) const =0;
+    virtual bool GetSaplingSpendingKey(
+        const libzcash::SaplingExtendedFullViewingKey &extfvk,
+        libzcash::SaplingExtendedSpendingKey& skOut) const =0;
 
     //! Support for Sapling full viewing keys
-    virtual bool AddSaplingFullViewingKey(
-        const libzcash::SaplingFullViewingKey &fvk,
-        const libzcash::SaplingPaymentAddress &defaultAddr) =0;
+    virtual bool AddSaplingFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk) =0;
     virtual bool HaveSaplingFullViewingKey(const libzcash::SaplingIncomingViewingKey &ivk) const =0;
     virtual bool GetSaplingFullViewingKey(
         const libzcash::SaplingIncomingViewingKey &ivk, 
-        libzcash::SaplingFullViewingKey& fvkOut) const =0;
-    
+        libzcash::SaplingExtendedFullViewingKey& extfvkOut) const =0;
+
     //! Sapling incoming viewing keys 
     virtual bool AddSaplingIncomingViewingKey(
         const libzcash::SaplingIncomingViewingKey &ivk,
@@ -101,6 +98,7 @@ public:
 };
 
 typedef std::map<CKeyID, CKey> KeyMap;
+typedef std::map<CKeyID, CPubKey> WatchKeyMap;
 typedef std::map<CScriptID, CScript > ScriptMap;
 typedef std::set<CScript> WatchOnlySet;
 typedef std::map<libzcash::SproutPaymentAddress, libzcash::SproutSpendingKey> SproutSpendingKeyMap;
@@ -109,8 +107,12 @@ typedef std::map<libzcash::SproutPaymentAddress, ZCNoteDecryption> NoteDecryptor
 
 // Full viewing key has equivalent functionality to a transparent address
 // When encrypting wallet, encrypt SaplingSpendingKeyMap, while leaving SaplingFullViewingKeyMap unencrypted
-typedef std::map<libzcash::SaplingFullViewingKey, libzcash::SaplingExtendedSpendingKey> SaplingSpendingKeyMap;
-typedef std::map<libzcash::SaplingIncomingViewingKey, libzcash::SaplingFullViewingKey> SaplingFullViewingKeyMap;
+typedef std::map<
+    libzcash::SaplingExtendedFullViewingKey,
+    libzcash::SaplingExtendedSpendingKey> SaplingSpendingKeyMap;
+typedef std::map<
+    libzcash::SaplingIncomingViewingKey,
+    libzcash::SaplingExtendedFullViewingKey> SaplingFullViewingKeyMap;
 // Only maps from default addresses to ivk, may need to be reworked when adding diversified addresses. 
 typedef std::map<libzcash::SaplingPaymentAddress, libzcash::SaplingIncomingViewingKey> SaplingIncomingViewingKeyMap;
 
@@ -120,6 +122,7 @@ class CBasicKeyStore : public CKeyStore
 protected:
     HDSeed hdSeed;
     KeyMap mapKeys;
+    WatchKeyMap mapWatchKeys;
     ScriptMap mapScripts;
     WatchOnlySet setWatchOnly;
     SproutSpendingKeyMap mapSproutSpendingKeys;
@@ -136,6 +139,7 @@ public:
     bool GetHDSeed(HDSeed& seedOut) const;
 
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey);
+    bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const;
     bool HaveKey(const CKeyID &address) const
     {
         bool result;
@@ -185,7 +189,7 @@ public:
     {
         bool result;
         {
-            LOCK(cs_SpendingKeyStore);
+            LOCK(cs_KeyStore);
             result = (mapSproutSpendingKeys.count(address) > 0);
         }
         return result;
@@ -193,7 +197,7 @@ public:
     bool GetSproutSpendingKey(const libzcash::SproutPaymentAddress &address, libzcash::SproutSpendingKey &skOut) const
     {
         {
-            LOCK(cs_SpendingKeyStore);
+            LOCK(cs_KeyStore);
             SproutSpendingKeyMap::const_iterator mi = mapSproutSpendingKeys.find(address);
             if (mi != mapSproutSpendingKeys.end())
             {
@@ -206,7 +210,7 @@ public:
     bool GetNoteDecryptor(const libzcash::SproutPaymentAddress &address, ZCNoteDecryption &decOut) const
     {
         {
-            LOCK(cs_SpendingKeyStore);
+            LOCK(cs_KeyStore);
             NoteDecryptorMap::const_iterator mi = mapNoteDecryptors.find(address);
             if (mi != mapNoteDecryptors.end())
             {
@@ -220,7 +224,7 @@ public:
     {
         setAddress.clear();
         {
-            LOCK(cs_SpendingKeyStore);
+            LOCK(cs_KeyStore);
             SproutSpendingKeyMap::const_iterator mi = mapSproutSpendingKeys.begin();
             while (mi != mapSproutSpendingKeys.end())
             {
@@ -235,26 +239,26 @@ public:
             }
         }
     }
-    
+
     //! Sapling 
-    bool AddSaplingSpendingKey(
-        const libzcash::SaplingExtendedSpendingKey &sk,
-        const libzcash::SaplingPaymentAddress &defaultAddr);
-    bool HaveSaplingSpendingKey(const libzcash::SaplingFullViewingKey &fvk) const
+    bool AddSaplingSpendingKey(const libzcash::SaplingExtendedSpendingKey &sk);
+    bool HaveSaplingSpendingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk) const
     {
         bool result;
         {
-            LOCK(cs_SpendingKeyStore);
-            result = (mapSaplingSpendingKeys.count(fvk) > 0);
+            LOCK(cs_KeyStore);
+            result = (mapSaplingSpendingKeys.count(extfvk) > 0);
         }
         return result;
     }
-    bool GetSaplingSpendingKey(const libzcash::SaplingFullViewingKey &fvk, libzcash::SaplingExtendedSpendingKey &skOut) const
+    bool GetSaplingSpendingKey(
+        const libzcash::SaplingExtendedFullViewingKey &extfvk,
+        libzcash::SaplingExtendedSpendingKey &skOut) const
     {
         {
-            LOCK(cs_SpendingKeyStore);
-            
-            SaplingSpendingKeyMap::const_iterator mi = mapSaplingSpendingKeys.find(fvk);
+            LOCK(cs_KeyStore);
+
+            SaplingSpendingKeyMap::const_iterator mi = mapSaplingSpendingKeys.find(extfvk);
             if (mi != mapSaplingSpendingKeys.end())
             {
                 skOut = mi->second;
@@ -264,14 +268,12 @@ public:
         return false;
     }
 
-    virtual bool AddSaplingFullViewingKey(
-        const libzcash::SaplingFullViewingKey &fvk,
-        const libzcash::SaplingPaymentAddress &defaultAddr);
+    virtual bool AddSaplingFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk);
     virtual bool HaveSaplingFullViewingKey(const libzcash::SaplingIncomingViewingKey &ivk) const;
     virtual bool GetSaplingFullViewingKey(
-        const libzcash::SaplingIncomingViewingKey &ivk, 
-        libzcash::SaplingFullViewingKey& fvkOut) const;
-    
+        const libzcash::SaplingIncomingViewingKey &ivk,
+        libzcash::SaplingExtendedFullViewingKey& extfvkOut) const;
+
     virtual bool AddSaplingIncomingViewingKey(
         const libzcash::SaplingIncomingViewingKey &ivk,
         const libzcash::SaplingPaymentAddress &addr);
@@ -288,7 +290,7 @@ public:
     {
         setAddress.clear();
         {
-            LOCK(cs_SpendingKeyStore);
+            LOCK(cs_KeyStore);
             auto mi = mapSaplingIncomingViewingKeys.begin();
             while (mi != mapSaplingIncomingViewingKeys.end())
             {

@@ -22,6 +22,52 @@ SpendDescriptionInfo::SpendDescriptionInfo(
     librustzcash_sapling_generate_r(alpha.begin());
 }
 
+boost::optional<OutputDescription> OutputDescriptionInfo::Build(void* ctx) {
+    auto cmu = this->note.cmu();
+    if (!cmu) {
+        return boost::none;
+    }
+
+    libzcash::SaplingNotePlaintext notePlaintext(this->note, this->memo);
+
+    auto res = notePlaintext.encrypt(this->note.pk_d);
+    if (!res) {
+        return boost::none;
+    }
+    auto enc = res.get();
+    auto encryptor = enc.second;
+
+    libzcash::SaplingPaymentAddress address(this->note.d, this->note.pk_d);
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << address;
+    std::vector<unsigned char> addressBytes(ss.begin(), ss.end());
+
+    OutputDescription odesc;
+    if (!librustzcash_sapling_output_proof(
+            ctx,
+            encryptor.get_esk().begin(),
+            addressBytes.data(),
+            this->note.r.begin(),
+            this->note.value(),
+            odesc.cv.begin(),
+            odesc.zkproof.begin())) {
+        return boost::none;
+    }
+
+    odesc.cmu = *cmu;
+    odesc.ephemeralKey = encryptor.get_epk();
+    odesc.encCiphertext = enc.first;
+
+    libzcash::SaplingOutgoingPlaintext outPlaintext(this->note.pk_d, encryptor.get_esk());
+    odesc.outCiphertext = outPlaintext.encrypt(
+        this->ovk,
+        odesc.cv,
+        odesc.cmu,
+        encryptor);
+
+    return odesc;
+}
+
 TransactionBuilderResult::TransactionBuilderResult(const CTransaction& tx) : maybeTx(tx) {}
 
 TransactionBuilderResult::TransactionBuilderResult(const std::string& error) : maybeError(error) {}
@@ -163,7 +209,7 @@ void TransactionBuilder::AddTransparentInput(COutPoint utxo, CScript scriptPubKe
     tIns.emplace_back(scriptPubKey, value);
 }
 
-void TransactionBuilder::AddTransparentOutput(CTxDestination& to, CAmount value)
+void TransactionBuilder::AddTransparentOutput(const CTxDestination& to, CAmount value)
 {
     if (!IsValidDestination(to)) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid output address, not a valid taddr.");
@@ -265,7 +311,7 @@ TransactionBuilderResult TransactionBuilder::Build()
 
     // Create Sapling SpendDescriptions
     for (auto spend : spends) {
-        auto cm = spend.note.cm();
+        auto cm = spend.note.cmu();
         auto nf = spend.note.nullifier(
             spend.expsk.full_viewing_key(), spend.witness.position());
         if (!cm || !nf) {
@@ -302,47 +348,19 @@ TransactionBuilderResult TransactionBuilder::Build()
 
     // Create Sapling OutputDescriptions
     for (auto output : outputs) {
-        auto cm = output.note.cm();
-        if (!cm) {
+        // Check this out here as well to provide better logging.
+        if (!output.note.cmu()) {
             librustzcash_sapling_proving_ctx_free(ctx);
             return TransactionBuilderResult("Output is invalid");
         }
 
-        libzcash::SaplingNotePlaintext notePlaintext(output.note, output.memo);
-
-        auto res = notePlaintext.encrypt(output.note.pk_d);
-        if (!res) {
+        auto odesc = output.Build(ctx);
+        if (!odesc) {
             librustzcash_sapling_proving_ctx_free(ctx);
-            return TransactionBuilderResult("Failed to encrypt note");
-        }
-        auto enc = res.get();
-        auto encryptor = enc.second;
-
-        OutputDescription odesc;
-        if (!librustzcash_sapling_output_proof(
-                ctx,
-                encryptor.get_esk().begin(),
-                output.note.d.data(),
-                output.note.pk_d.begin(),
-                output.note.r.begin(),
-                output.note.value(),
-                odesc.cv.begin(),
-                odesc.zkproof.begin())) {
-            librustzcash_sapling_proving_ctx_free(ctx);
-            return TransactionBuilderResult("Output proof failed");
+            return TransactionBuilderResult("Failed to create output description");
         }
 
-        odesc.cm = *cm;
-        odesc.ephemeralKey = encryptor.get_epk();
-        odesc.encCiphertext = enc.first;
-
-        libzcash::SaplingOutgoingPlaintext outPlaintext(output.note.pk_d, encryptor.get_esk());
-        odesc.outCiphertext = outPlaintext.encrypt(
-            output.ovk,
-            odesc.cv,
-            odesc.cm,
-            encryptor);
-        mtx.vShieldedOutput.push_back(odesc);
+        mtx.vShieldedOutput.push_back(odesc.get());
     }
 
     //

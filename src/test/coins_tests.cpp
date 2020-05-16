@@ -3,7 +3,7 @@
 // file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 #include "coins.h"
-#include "random.h"
+#include "test_random.h"
 #include "script/standard.h"
 #include "uint256.h"
 #include "utilstrencodings.h"
@@ -170,7 +170,8 @@ public:
                     CAnchorsSproutMap& mapSproutAnchors,
                     CAnchorsSaplingMap& mapSaplingAnchors,
                     CNullifiersMap& mapSproutNullifiers,
-                    CNullifiersMap& mapSaplingNullifiers)
+                    CNullifiersMap& mapSaplingNullifiers,
+                    CHistoryCacheMap &historyCacheMap)
     {
         for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end(); ) {
             if (it->second.flags & CCoinsCacheEntry::DIRTY) {
@@ -214,7 +215,8 @@ public:
                      memusage::DynamicUsage(cacheSproutAnchors) +
                      memusage::DynamicUsage(cacheSaplingAnchors) +
                      memusage::DynamicUsage(cacheSproutNullifiers) +
-                     memusage::DynamicUsage(cacheSaplingNullifiers);
+                     memusage::DynamicUsage(cacheSaplingNullifiers) +
+                     memusage::DynamicUsage(historyCacheMap);
         for (CCoinsMap::iterator it = cacheCoins.begin(); it != cacheCoins.end(); it++) {
             ret += it->second.coins.DynamicMemoryUsage();
         }

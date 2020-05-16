@@ -21,6 +21,9 @@
 #include "txmempool.h"
 #include "util.h"
 #include "validationinterface.h"
+#ifdef ENABLE_WALLET
+#include "wallet/wallet.h"
+#endif
 
 #include <stdint.h>
 
@@ -143,7 +146,7 @@ UniValue getgenerate(const UniValue& params, bool fHelp)
         throw runtime_error(
             "getgenerate\n"
             "\nReturn if the server is set to generate coins or not. The default is false.\n"
-            "It is set with the command line argument -gen (or zcash.conf setting gen)\n"
+            "It is set with the command line argument -gen (or " + std::string(BITCOIN_CONF_FILENAME) + " setting gen)\n"
             "It can also be set with the setgenerate call.\n"
             "\nResult\n"
             "true|false      (boolean) If the server is set to generate coins or not\n"
@@ -153,7 +156,7 @@ UniValue getgenerate(const UniValue& params, bool fHelp)
         );
 
     LOCK(cs_main);
-    return GetBoolArg("-gen", false);
+    return GetBoolArg("-gen", DEFAULT_GENERATE);
 }
 
 UniValue generate(const UniValue& params, bool fHelp)
@@ -164,7 +167,7 @@ UniValue generate(const UniValue& params, bool fHelp)
             "\nMine blocks immediately (before the RPC call returns)\n"
             "\nNote: this function can only be used on the regtest network\n"
             "\nArguments:\n"
-            "1. numblocks    (numeric) How many blocks are generated immediately.\n"
+            "1. numblocks    (numeric, required) How many blocks are generated immediately.\n"
             "\nResult\n"
             "[ blockhashes ]     (array) hashes of blocks generated\n"
             "\nExamples:\n"
@@ -180,12 +183,13 @@ UniValue generate(const UniValue& params, bool fHelp)
     int nHeight = 0;
     int nGenerate = params[0].get_int();
 
-    boost::shared_ptr<CReserveScript> coinbaseScript;
-    GetMainSignals().ScriptForMining(coinbaseScript);
+    MinerAddress minerAddress;
+    GetMainSignals().AddressForMining(minerAddress);
 
-    //throw an error if no script was provided
-    if (!coinbaseScript->reserveScript.size())
-        throw JSONRPCError(RPC_INTERNAL_ERROR, "No coinbase script available (mining requires a wallet or -mineraddress)");
+    // Throw an error if no address valid for mining was provided.
+    if (!IsValidMinerAddress(minerAddress)) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "No miner address available (mining requires a wallet or -mineraddress)");
+    }
 
     {   // Don't keep cs_main locked
         LOCK(cs_main);
@@ -199,7 +203,7 @@ UniValue generate(const UniValue& params, bool fHelp)
     unsigned int k = Params().GetConsensus().nEquihashK;
     while (nHeight < nHeightEnd)
     {
-        std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlock(Params(), coinbaseScript->reserveScript));
+        std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlock(Params(), minerAddress));
         if (!pblocktemplate.get())
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Couldn't create new block");
         CBlock *pblock = &pblocktemplate->block;
@@ -252,8 +256,8 @@ endloop:
         ++nHeight;
         blockHashes.push_back(pblock->GetHash().GetHex());
 
-        //mark script as important because it was used at least for one coinbase output
-        coinbaseScript->KeepScript();
+        //mark miner address as important because it was used at least for one coinbase output
+        boost::apply_visitor(KeepMinerAddress(), minerAddress);
     }
     return blockHashes;
 }
@@ -287,7 +291,7 @@ UniValue setgenerate(const UniValue& params, bool fHelp)
     if (params.size() > 0)
         fGenerate = params[0].get_bool();
 
-    int nGenProcLimit = -1;
+    int nGenProcLimit = GetArg("-genproclimit", DEFAULT_GENERATE_THREADS);
     if (params.size() > 1)
     {
         nGenProcLimit = params[1].get_int();
@@ -338,7 +342,7 @@ UniValue getmininginfo(const UniValue& params, bool fHelp)
     obj.push_back(Pair("currentblocktx",   (uint64_t)nLastBlockTx));
     obj.push_back(Pair("difficulty",       (double)GetNetworkDifficulty()));
     obj.push_back(Pair("errors",           GetWarnings("statusbar")));
-    obj.push_back(Pair("genproclimit",     (int)GetArg("-genproclimit", -1)));
+    obj.push_back(Pair("genproclimit",     (int)GetArg("-genproclimit", DEFAULT_GENERATE_THREADS)));
     obj.push_back(Pair("localsolps"  ,     getlocalsolps(params, false)));
     obj.push_back(Pair("networksolps",     getnetworksolps(params, false)));
     obj.push_back(Pair("networkhashps",    getnetworksolps(params, false)));
@@ -427,7 +431,8 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             "{\n"
             "  \"version\" : n,                     (numeric) The block version\n"
             "  \"previousblockhash\" : \"xxxx\",    (string) The hash of current highest block\n"
-            "  \"finalsaplingroothash\" : \"xxxx\", (string) The hash of the final sapling root\n"
+            "  \"lightclientroothash\" : \"xxxx\", (string) The hash of the light client root field in the block header\n"
+            "  \"finalsaplingroothash\" : \"xxxx\", (string) (DEPRECATED) The hash of the light client root field in the block header\n"
             "  \"transactions\" : [                 (array) contents of non-coinbase transactions that should be included in the next block\n"
             "      {\n"
             "         \"data\" : \"xxxx\",          (string) transaction data encoded in hexadecimal (byte-for-byte)\n"
@@ -607,19 +612,20 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             pblocktemplate = NULL;
         }
 
-        boost::shared_ptr<CReserveScript> coinbaseScript;
-        GetMainSignals().ScriptForMining(coinbaseScript);
+        MinerAddress minerAddress;
+        GetMainSignals().AddressForMining(minerAddress);
 
-        // Throw an error if no script was provided
-        if (!coinbaseScript->reserveScript.size())
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "No coinbase script available (mining requires a wallet or -mineraddress)");
+        // Throw an error if no address valid for mining was provided.
+        if (!IsValidMinerAddress(minerAddress)) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "No miner address available (mining requires a wallet or -mineraddress)");
+        }
 
-        pblocktemplate = CreateNewBlock(Params(), coinbaseScript->reserveScript);
+        pblocktemplate = CreateNewBlock(Params(), minerAddress);
         if (!pblocktemplate)
             throw JSONRPCError(RPC_OUT_OF_MEMORY, "Out of memory");
 
         // Mark script as important because it was used at least for one coinbase output
-        coinbaseScript->KeepScript();
+        boost::apply_visitor(KeepMinerAddress(), minerAddress);
 
         // Need to update only after we know CreateNewBlock succeeded
         pindexPrev = pindexPrevNew;
@@ -691,7 +697,9 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     result.push_back(Pair("capabilities", aCaps));
     result.push_back(Pair("version", pblock->nVersion));
     result.push_back(Pair("previousblockhash", pblock->hashPrevBlock.GetHex()));
-    result.push_back(Pair("finalsaplingroothash", pblock->hashFinalSaplingRoot.GetHex()));
+    result.push_back(Pair("lightclientroothash", pblock->hashLightClientRoot.GetHex()));
+    // Deprecated; remove in a future release.
+    result.push_back(Pair("finalsaplingroothash", pblock->hashLightClientRoot.GetHex()));
     result.push_back(Pair("transactions", transactions));
     if (coinbasetxn) {
         assert(txCoinbase.isObject());

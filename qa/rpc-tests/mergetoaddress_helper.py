@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright (c) 2018 The Zcash developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://www.opensource.org/licenses/mit-license.php .
@@ -41,12 +42,12 @@ class MergeToAddressHelper:
         initialize_chain_clean(test.options.tmpdir, 4)
 
     def setup_network(self, test, additional_args=[]):
-        args = ['-debug=zrpcunsafe', '-experimentalfeatures', '-zmergetoaddress']
+        args = ['-debug=zrpcunsafe']
         args += additional_args
         test.nodes = []
         test.nodes.append(start_node(0, test.options.tmpdir, args))
         test.nodes.append(start_node(1, test.options.tmpdir, args))
-        args2 = ['-debug=zrpcunsafe', '-experimentalfeatures', '-zmergetoaddress', '-mempooltxinputlimit=7']
+        args2 = ['-debug=zrpcunsafe']
         args2 += additional_args
         test.nodes.append(start_node(2, test.options.tmpdir, args2))
         connect_nodes_bi(test.nodes, 0, 1)
@@ -56,12 +57,13 @@ class MergeToAddressHelper:
         test.sync_all()
 
     def run_test(self, test):
-        print "Mining blocks..."
+        print("Mining blocks...")
 
         test.nodes[0].generate(1)
         do_not_shield_taddr = test.nodes[0].getnewaddress()
 
         test.nodes[0].generate(4)
+        test.sync_all()
         walletinfo = test.nodes[0].getwalletinfo()
         assert_equal(walletinfo['immature_balance'], 50)
         assert_equal(walletinfo['balance'], 0)
@@ -358,8 +360,6 @@ class MergeToAddressHelper:
         assert_equal(result["mergingNotes"], Decimal('2'))
         assert_equal(result["remainingNotes"], num_notes - 4)
         wait_and_assert_operationid_status(test.nodes[0], result['opid'])
-        # Don't sync node 2 which rejects the tx due to its mempooltxinputlimit
-        sync_blocks(test.nodes[:2])
-        sync_mempools(test.nodes[:2])
+        test.sync_all()
         test.nodes[1].generate(1)
         test.sync_all()

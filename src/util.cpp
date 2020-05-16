@@ -1,5 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin Core developers
+// Copyright (c) 2015-2020 The Zcash developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
@@ -99,6 +100,9 @@ namespace boost {
 
 using namespace std;
 
+const char * const BITCOIN_CONF_FILENAME = "votecoin.conf";
+const char * const BITCOIN_PID_FILENAME = "votecoin.pid";
+
 map<string, string> mapArgs;
 map<string, vector<string> > mapMultiArgs;
 bool fDebug = false;
@@ -106,7 +110,7 @@ bool fPrintToConsole = false;
 bool fPrintToDebugLog = true;
 bool fDaemon = false;
 bool fServer = false;
-string strMiscWarning;
+
 bool fLogTimestamps = DEFAULT_LOGTIMESTAMPS;
 bool fLogTimeMicros = DEFAULT_LOGTIMEMICROS;
 bool fLogIPs = DEFAULT_LOGIPS;
@@ -320,18 +324,21 @@ int LogPrintStr(const std::string &str)
     return ret;
 }
 
-static void InterpretNegativeSetting(string name, map<string, string>& mapSettingsRet)
+/** Interpret string as boolean, for argument parsing */
+static bool InterpretBool(const std::string& strValue)
 {
-    // interpret -nofoo as -foo=0 (and -nofoo=0 as -foo=1) as long as -foo not set
-    if (name.find("-no") == 0)
+    if (strValue.empty())
+        return true;
+    return (atoi(strValue) != 0);
+}
+
+/** Turn -noX into -X=0 (and -noX=0 into -X=1) */
+static void InterpretNegativeSetting(std::string& strKey, std::string& strValue)
+{
+    if (strKey.length()>3 && strKey[0]=='-' && strKey[1]=='n' && strKey[2]=='o')
     {
-        std::string positive("-");
-        positive.append(name.begin()+3, name.end());
-        if (mapSettingsRet.count(positive) == 0)
-        {
-            bool value = !GetBoolArg(name, false);
-            mapSettingsRet[positive] = (value ? "1" : "0");
-        }
+        strKey = "-" + strKey.substr(3);
+        strValue = InterpretBool(strValue) ? "0" : "1";
     }
 }
 
@@ -363,16 +370,10 @@ void ParseParameters(int argc, const char* const argv[])
         // If both --foo and -foo are set, the last takes effect.
         if (str.length() > 1 && str[1] == '-')
             str = str.substr(1);
+        InterpretNegativeSetting(str, strValue);
 
         mapArgs[str] = strValue;
         mapMultiArgs[str].push_back(strValue);
-    }
-
-    // New 0.6 features:
-    BOOST_FOREACH(const PAIRTYPE(string,string)& entry, mapArgs)
-    {
-        // interpret -nofoo as -foo=0 (and -nofoo=0 as -foo=1) as long as -foo not set
-        InterpretNegativeSetting(entry.first, mapArgs);
     }
 }
 
@@ -393,11 +394,7 @@ int64_t GetArg(const std::string& strArg, int64_t nDefault)
 bool GetBoolArg(const std::string& strArg, bool fDefault)
 {
     if (mapArgs.count(strArg))
-    {
-        if (mapArgs[strArg].empty())
-            return true;
-        return (atoi(mapArgs[strArg]) != 0);
-    }
+        return InterpretBool(mapArgs[strArg]);
     return fDefault;
 }
 
@@ -438,7 +435,7 @@ static std::string FormatException(const std::exception* pex, const char* pszThr
     char pszModule[MAX_PATH] = "";
     GetModuleFileNameA(NULL, pszModule, sizeof(pszModule));
 #else
-    const char* pszModule = "Zcash";
+    const char* pszModule = "Votecoin";
 #endif
     if (pex)
         return strprintf(
@@ -453,7 +450,6 @@ void PrintExceptionContinue(const std::exception* pex, const char* pszThread)
     std::string message = FormatException(pex, pszThread);
     LogPrintf("\n\n************************\n%s\n", message);
     fprintf(stderr, "\n\n************************\n%s\n", message.c_str());
-    strMiscWarning = message;
 }
 
 boost::filesystem::path GetDefaultDataDir()
@@ -465,7 +461,7 @@ boost::filesystem::path GetDefaultDataDir()
     // Unix: ~/.zcash
 #ifdef WIN32
     // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "VoteCoin";
+    return GetSpecialFolderPath(CSIDL_APPDATA) / "Votecoin";
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -501,7 +497,7 @@ static boost::filesystem::path ZC_GetBaseParamsDir()
     // Unix: ~/.zcash-params
 #ifdef WIN32
     // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "zkSNARK";
+    return GetSpecialFolderPath(CSIDL_APPDATA) / "ZcashParams";
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -595,19 +591,20 @@ void ClearDatadirCache()
     pathCachedNetSpecific = boost::filesystem::path();
 }
 
-boost::filesystem::path GetConfigFile()
+boost::filesystem::path GetConfigFile(const std::string& confPath)
 {
-    boost::filesystem::path pathConfigFile(GetArg("-conf", "votecoin.conf"));
+    boost::filesystem::path pathConfigFile(confPath);
     if (!pathConfigFile.is_complete())
         pathConfigFile = GetDataDir(false) / pathConfigFile;
 
     return pathConfigFile;
 }
 
-void ReadConfigFile(map<string, string>& mapSettingsRet,
+void ReadConfigFile(const std::string& confPath,
+                    map<string, string>& mapSettingsRet,
                     map<string, vector<string> >& mapMultiSettingsRet)
 {
-    boost::filesystem::ifstream streamConfig(GetConfigFile());
+    boost::filesystem::ifstream streamConfig(GetConfigFile(confPath));
     if (!streamConfig.good())
         throw missing_zcash_conf();
 
@@ -616,15 +613,13 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
 
     for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it)
     {
-        // Don't overwrite existing settings so command line settings override zcash.conf
         string strKey = string("-") + it->string_key;
+        string strValue = it->value[0];
+        InterpretNegativeSetting(strKey, strValue);
+        // Don't overwrite existing settings so command line settings override zcash.conf
         if (mapSettingsRet.count(strKey) == 0)
-        {
-            mapSettingsRet[strKey] = it->value[0];
-            // interpret nofoo=1 as foo=0 (and nofoo=0 as foo=1) as long as foo not set)
-            InterpretNegativeSetting(strKey, mapSettingsRet);
-        }
-        mapMultiSettingsRet[strKey].push_back(it->value[0]);
+            mapSettingsRet[strKey] = strValue;
+        mapMultiSettingsRet[strKey].push_back(strValue);
     }
     // If datadir is changed in .conf file:
     ClearDatadirCache();
@@ -633,7 +628,7 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
 #ifndef WIN32
 boost::filesystem::path GetPidFile()
 {
-    boost::filesystem::path pathPidFile(GetArg("-pid", "zcashd.pid"));
+    boost::filesystem::path pathPidFile(GetArg("-pid", BITCOIN_PID_FILENAME));
     if (!pathPidFile.is_complete()) pathPidFile = GetDataDir() / pathPidFile;
     return pathPidFile;
 }
@@ -802,10 +797,6 @@ boost::filesystem::path GetSpecialFolderPath(int nFolder, bool fCreate)
 {
     namespace fs = boost::filesystem;
 
-    fs::path path;
-    path = fs::system_complete(".");
-    if (fs::exists(path)) return path;
-
     char pszPath[MAX_PATH] = "";
 
     if(SHGetSpecialFolderPathA(NULL, pszPath, nFolder, fCreate))
@@ -909,7 +900,9 @@ void SetThreadPriority(int nPriority)
 
 std::string PrivacyInfo()
 {
-    return "\n";
+    return "\n" +
+           FormatParagraph(strprintf(_("In order to ensure you are adequately protecting your privacy when using VoteCoin, please see <%s>."),
+                                     "https://votecoin.site/")) + "\n";
 }
 
 std::string LicenseInfo()
@@ -917,7 +910,6 @@ std::string LicenseInfo()
     return "\n" +
            FormatParagraph(strprintf(_("Copyright (C) 2009-%i The Bitcoin Core Developers"), COPYRIGHT_YEAR)) + "\n" +
            FormatParagraph(strprintf(_("Copyright (C) 2015-%i The Zcash Developers"), COPYRIGHT_YEAR)) + "\n" +
-           FormatParagraph(strprintf(_("Copyright (C) 2015-%i The VoteCoin Developers"), COPYRIGHT_YEAR)) + "\n" +
            "\n" +
            FormatParagraph(_("This is experimental software.")) + "\n" +
            "\n" +
@@ -931,4 +923,3 @@ int GetNumCores()
 {
     return boost::thread::physical_concurrency();
 }
-

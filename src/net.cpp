@@ -171,7 +171,7 @@ CAddress GetLocalAddress(const CNetAddr *paddrPeer)
         ret = CAddress(addr);
     }
     ret.nServices = nLocalServices;
-    ret.nTime = GetAdjustedTime();
+    ret.nTime = GetTime();
     return ret;
 }
 
@@ -207,7 +207,8 @@ void AdvertizeLocal(CNode *pnode)
         if (addrLocal.IsRoutable())
         {
             LogPrintf("AdvertizeLocal: advertizing address %s\n", addrLocal.ToString());
-            pnode->PushAddress(addrLocal);
+            FastRandomContext insecure_rand;
+            pnode->PushAddress(addrLocal, insecure_rand);
         }
     }
 }
@@ -371,7 +372,7 @@ CNode* ConnectNode(CAddress addrConnect, const char *pszDest)
     /// debug print
     LogPrint("net", "trying connection %s lastseen=%.1fhrs\n",
         pszDest ? pszDest : addrConnect.ToString(),
-        pszDest ? 0.0 : (double)(GetAdjustedTime() - addrConnect.nTime)/3600.0);
+        pszDest ? 0.0 : (double)(GetTime() - addrConnect.nTime)/3600.0);
 
     // Connect
     SOCKET hSocket;
@@ -427,7 +428,7 @@ void CNode::PushVersion()
 {
     int nBestHeight = g_signals.GetHeight().get_value_or(0);
 
-    int64_t nTime = (fInbound ? GetAdjustedTime() : GetTime());
+    int64_t nTime = GetTime();
     CAddress addrYou = (addr.IsRoutable() && !IsProxy(addr) ? addr : CAddress(CService("0.0.0.0",0)));
     CAddress addrMe = GetLocalAddress(&addr);
     GetRandBytes((unsigned char*)&nLocalHostNonce, sizeof(nLocalHostNonce));
@@ -491,7 +492,7 @@ void CNode::Ban(const CNetAddr& addr, int64_t bantimeoffset, bool sinceUnixEpoch
 }
 
 void CNode::Ban(const CSubNet& subNet, int64_t bantimeoffset, bool sinceUnixEpoch) {
-    int64_t banTime = GetTime()+GetArg("-bantime", 60*60*24);  // Default 24-hour ban
+    int64_t banTime = GetTime()+GetArg("-bantime", DEFAULT_MISBEHAVING_BANTIME);
     if (bantimeoffset > 0)
         banTime = (sinceUnixEpoch ? 0 : GetTime() )+bantimeoffset;
 
@@ -831,7 +832,12 @@ static bool AttemptToEvictConnection(bool fPreferNewConnection) {
         {
             // Find any nodes which don't support the protocol version for the next upgrade
             for (const CNodeRef &node : vEvictionCandidates) {
-                if (node->nVersion < params.vUpgrades[idx].nProtocolVersion) {
+                if (node->nVersion < params.vUpgrades[idx].nProtocolVersion &&
+                    !(
+                        Params().NetworkIDString() == "regtest" &&
+                        !GetBoolArg("-nurejectoldversions", DEFAULT_NU_REJECT_OLD_VERSIONS)
+                    )
+                ) {
                     vTmpEvictionCandidates.push_back(node);
                 }
             }
@@ -1243,7 +1249,7 @@ void ThreadDNSAddressSeed()
 {
     // goal: only query DNS seeds if address need is acute
     if ((addrman.size() > 0) &&
-        (!GetBoolArg("-forcednsseed", false))) {
+        (!GetBoolArg("-forcednsseed", DEFAULT_FORCEDNSSEED))) {
         MilliSleep(11 * 1000);
 
         LOCK(cs_vNodes);
@@ -1383,7 +1389,7 @@ void ThreadOpenConnections()
             }
         }
 
-        int64_t nANow = GetAdjustedTime();
+        int64_t nANow = GetTime();
 
         int nTries = 0;
         while (true)
@@ -1667,7 +1673,7 @@ bool BindListenPort(const CService &addrBind, string& strError, bool fWhiteliste
     {
         int nErr = WSAGetLastError();
         if (nErr == WSAEADDRINUSE)
-            strError = strprintf(_("Unable to bind to %s on this computer. VoteCoin is probably already running."), addrBind.ToString());
+            strError = strprintf(_("Unable to bind to %s on this computer. Zcash is probably already running."), addrBind.ToString());
         else
             strError = strprintf(_("Unable to bind to %s on this computer (bind returned error %s)"), addrBind.ToString(), NetworkErrorString(nErr));
         LogPrintf("%s\n", strError);
@@ -1784,8 +1790,9 @@ void StartNode(boost::thread_group& threadGroup, CScheduler& scheduler)
     // Initiate outbound connections from -addnode
     threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "addcon", &ThreadOpenAddedConnections));
 
-    // Initiate outbound connections
-    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "opencon", &ThreadOpenConnections));
+    // Initiate outbound connections unless connect=0
+    if (!mapArgs.count("-connect") || mapMultiArgs["-connect"].size() != 1 || mapMultiArgs["-connect"][0] != "0")
+        threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "opencon", &ThreadOpenConnections));
 
     // Process messages
     threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "msghand", &ThreadMessageHandler));
@@ -2052,8 +2059,8 @@ bool CAddrDB::Read(CAddrMan& addr)
     return true;
 }
 
-unsigned int ReceiveFloodSize() { return 1000*GetArg("-maxreceivebuffer", 5*1000); }
-unsigned int SendBufferSize() { return 1000*GetArg("-maxsendbuffer", 1*1000); }
+unsigned int ReceiveFloodSize() { return 1000*GetArg("-maxreceivebuffer", DEFAULT_MAXRECEIVEBUFFER); }
+unsigned int SendBufferSize() { return 1000*GetArg("-maxsendbuffer", DEFAULT_MAXSENDBUFFER); }
 
 CNode::CNode(SOCKET hSocketIn, const CAddress& addrIn, const std::string& addrNameIn, bool fInboundIn) :
     ssSend(SER_NETWORK, INIT_PROTO_VERSION),

@@ -6,7 +6,7 @@
 #include "consensus/validation.h"
 #include "data/sighash.json.h"
 #include "main.h"
-#include "random.h"
+#include "test_random.h"
 #include "script/interpreter.h"
 #include "script/script.h"
 #include "serialize.h"
@@ -159,7 +159,7 @@ void static RandomTransaction(CMutableTransaction &tx, bool fSingle, uint32_t co
         for (int out = 0; out < shielded_outs; out++) {
             OutputDescription odesc;
             odesc.cv = GetRandHash();
-            odesc.cm = GetRandHash();
+            odesc.cmu = GetRandHash();
             odesc.ephemeralKey = GetRandHash();
             randombytes_buf(odesc.encCiphertext.begin(), odesc.encCiphertext.size());
             randombytes_buf(odesc.outCiphertext.begin(), odesc.outCiphertext.size());

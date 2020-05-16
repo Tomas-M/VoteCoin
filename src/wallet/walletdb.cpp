@@ -196,6 +196,20 @@ bool CWalletDB::EraseSproutViewingKey(const libzcash::SproutViewingKey &vk)
     return Erase(std::make_pair(std::string("vkey"), vk));
 }
 
+bool CWalletDB::WriteSaplingExtendedFullViewingKey(
+    const libzcash::SaplingExtendedFullViewingKey &extfvk)
+{
+    nWalletDBUpdated++;
+    return Write(std::make_pair(std::string("sapextfvk"), extfvk), '1');
+}
+
+bool CWalletDB::EraseSaplingExtendedFullViewingKey(
+    const libzcash::SaplingExtendedFullViewingKey &extfvk)
+{
+    nWalletDBUpdated++;
+    return Erase(std::make_pair(std::string("sapextfvk"), extfvk));
+}
+
 bool CWalletDB::WriteCScript(const uint160& hash, const CScript& redeemScript)
 {
     nWalletDBUpdated++;
@@ -570,6 +584,20 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             //add checks for integrity
             wss.nZKeys++;
         }
+        else if (strType == "sapextfvk")
+        {
+            libzcash::SaplingExtendedFullViewingKey extfvk;
+            ssKey >> extfvk;
+            char fYes;
+            ssValue >> fYes;
+            if (fYes == '1') {
+                pwallet->LoadSaplingFullViewingKey(extfvk);
+            }
+
+            // Viewing keys have no birthday information for now,
+            // so set the wallet birthday to the beginning of time.
+            pwallet->nTimeFirstKey = 1;
+        }
 
         else if (strType == "key" || strType == "wkey")
         {
@@ -863,7 +891,7 @@ static bool IsKeyType(string strType)
             strType == "hdseed" || strType == "chdseed" ||
             strType == "zkey" || strType == "czkey" ||
             strType == "sapzkey" || strType == "csapzkey" ||
-            strType == "vkey" ||
+            strType == "vkey" || strType == "sapextfvk" ||
             strType == "mkey" || strType == "ckey");
 }
 
@@ -1072,7 +1100,7 @@ void ThreadFlushWalletDB(const string& strFile)
     if (fOneThread)
         return;
     fOneThread = true;
-    if (!GetBoolArg("-flushwallet", true))
+    if (!GetBoolArg("-flushwallet", DEFAULT_FLUSHWALLET))
         return;
 
     unsigned int nLastSeen = nWalletDBUpdated;
@@ -1108,16 +1136,16 @@ void ThreadFlushWalletDB(const string& strFile)
                     map<string, int>::iterator mi = bitdb.mapFileUseCount.find(strFile);
                     if (mi != bitdb.mapFileUseCount.end())
                     {
-                        LogPrint("db", "Flushing wallet.dat\n");
+                        LogPrint("db", "Flushing %s\n", strFile);
                         nLastFlushed = nWalletDBUpdated;
                         int64_t nStart = GetTimeMillis();
 
-                        // Flush wallet.dat so it's self contained
+                        // Flush wallet file so it's self contained
                         bitdb.CloseDb(strFile);
                         bitdb.CheckpointLSN(strFile);
 
                         bitdb.mapFileUseCount.erase(mi++);
-                        LogPrint("db", "Flushed wallet.dat %dms\n", GetTimeMillis() - nStart);
+                        LogPrint("db", "Flushed %s %dms\n", strFile, GetTimeMillis() - nStart);
                     }
                 }
             }
@@ -1140,7 +1168,7 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
                 bitdb.CheckpointLSN(wallet.strWalletFile);
                 bitdb.mapFileUseCount.erase(wallet.strWalletFile);
 
-                // Copy wallet.dat
+                // Copy wallet file
                 boost::filesystem::path pathSrc = GetDataDir() / wallet.strWalletFile;
                 boost::filesystem::path pathDest(strDest);
                 if (boost::filesystem::is_directory(pathDest))
@@ -1148,10 +1176,10 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
 
                 try {
                     boost::filesystem::copy_file(pathSrc, pathDest, boost::filesystem::copy_option::overwrite_if_exists);
-                    LogPrintf("copied wallet.dat to %s\n", pathDest.string());
+                    LogPrintf("copied %s to %s\n", wallet.strWalletFile, pathDest.string());
                     return true;
                 } catch (const boost::filesystem::filesystem_error& e) {
-                    LogPrintf("error copying wallet.dat to %s - %s\n", pathDest.string(), e.what());
+                    LogPrintf("error copying %s to %s - %s\n", wallet.strWalletFile, pathDest.string(), e.what());
                     return false;
                 }
             }
@@ -1162,15 +1190,15 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
 }
 
 //
-// Try to (very carefully!) recover wallet.dat if there is a problem.
+// Try to (very carefully!) recover wallet file if there is a problem.
 //
 bool CWalletDB::Recover(CDBEnv& dbenv, const std::string& filename, bool fOnlyKeys)
 {
     // Recovery procedure:
-    // move wallet.dat to wallet.timestamp.bak
+    // move wallet file to wallet.timestamp.bak
     // Call Salvage with fAggressive=true to
     // get as much data as possible.
-    // Rewrite salvaged data to wallet.dat
+    // Rewrite salvaged data to fresh wallet file
     // Set -rescan so any missing transactions will be
     // found.
     int64_t now = GetTime();

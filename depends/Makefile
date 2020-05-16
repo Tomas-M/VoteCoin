@@ -77,7 +77,9 @@ include builders/default.mk
 include packages/packages.mk
 
 wallet_packages_$(NO_WALLET) = $(wallet_packages)
-proton_packages_$(NO_PROTON) = $(proton_packages)
+
+NO_PROTON_$(WITH_PROTON) = 1
+proton_packages_$(NO_PROTON_) = $(proton_packages)
 
 packages += $($(host_arch)_$(host_os)_packages) $($(host_os)_packages) $(rust_packages) $(proton_packages_) $(wallet_packages_)
 native_packages += $($(host_arch)_$(host_os)_native_packages) $($(host_os)_native_packages)
@@ -115,6 +117,7 @@ $(host_prefix)/share/config.site : config.site.in $(host_prefix)/.stamp_$(final_
             -e 's|@CXXFLAGS@|$(strip $(host_CXXFLAGS) $(host_$(release_type)_CXXFLAGS))|' \
             -e 's|@CPPFLAGS@|$(strip $(host_CPPFLAGS) $(host_$(release_type)_CPPFLAGS))|' \
             -e 's|@LDFLAGS@|$(strip $(host_LDFLAGS) $(host_$(release_type)_LDFLAGS))|' \
+            -e 's|@rust_target@|$(call rust_target,rust,$(canonical_host),$(host_os))|' \
             -e 's|@no_wallet@|$(NO_WALLET)|' \
             -e 's|@debug@|$(DEBUG)|' \
             $< > $@

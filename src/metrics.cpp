@@ -78,6 +78,8 @@ AtomicCounter ehSolverRuns;
 AtomicCounter solutionTargetChecks;
 static AtomicCounter minedBlocks;
 AtomicTimer miningTimer;
+std::atomic<size_t> nSizeReindexed(0);   // valid only during reindex
+std::atomic<size_t> nFullSizeToReindex(1);   // valid only during reindex
 
 static boost::synchronized_value<std::list<uint256>> trackedBlocks;
 
@@ -120,7 +122,7 @@ std::string WhichNetwork()
 
 int EstimateNetHeight(const Consensus::Params& params, int currentHeadersHeight, int64_t currentHeadersTime)
 {
-    int64_t now = GetAdjustedTime();
+    int64_t now = GetTime();
     if (currentHeadersTime >= now) {
         return currentHeadersHeight;
     }
@@ -203,16 +205,77 @@ void ConnectMetricsScreen()
     uiInterface.InitMessage.connect(metrics_InitMessage);
 }
 
+std::string DisplayDuration(int64_t time, DurationFormat format)
+{
+    int days =  time / (24 * 60 * 60);
+    int hours = (time - (days * 24 * 60 * 60)) / (60 * 60);
+    int minutes = (time - (((days * 24) + hours) * 60 * 60)) / 60;
+    int seconds = time - (((((days * 24) + hours) * 60) + minutes) * 60);
+
+    std::string strDuration;
+    if (format == DurationFormat::REDUCED) {
+        if (days > 0) {
+            strDuration = strprintf(_("%d days"), days);
+        } else if (hours > 0) {
+            strDuration = strprintf(_("%d hours"), hours);
+        } else if (minutes > 0) {
+            strDuration = strprintf(_("%d minutes"), minutes);
+        } else {
+            strDuration = strprintf(_("%d seconds"), seconds);
+        }
+    } else {
+        if (days > 0) {
+            strDuration = strprintf(_("%d days, %d hours, %d minutes, %d seconds"), days, hours, minutes, seconds);
+        } else if (hours > 0) {
+            strDuration = strprintf(_("%d hours, %d minutes, %d seconds"), hours, minutes, seconds);
+        } else if (minutes > 0) {
+            strDuration = strprintf(_("%d minutes, %d seconds"), minutes, seconds);
+        } else {
+            strDuration = strprintf(_("%d seconds"), seconds);
+        }
+    }
+    return strDuration;
+}
+
+std::string DisplaySize(size_t value)
+{
+    double coef = 1.0;
+    if (value < 1024.0 * coef)
+       return strprintf(_("%d Bytes"), value);
+    coef *= 1024.0;
+    if (value < 1024.0 * coef)
+       return strprintf(_("%.2f KiB"), value / coef);
+    coef *= 1024.0;
+    if (value < 1024.0 * coef)
+       return strprintf(_("%.2f MiB"), value / coef);
+    coef *= 1024.0;
+    if (value < 1024.0 * coef)
+       return strprintf(_("%.2f GiB"), value / coef);
+    coef *= 1024.0;
+    return strprintf(_("%.2f TiB"), value / coef);
+}
+
+boost::optional<int64_t> SecondsLeftToNextEpoch(const Consensus::Params& params, int currentHeight)
+{
+    auto nextHeight = NextActivationHeight(currentHeight, params);
+    if (nextHeight) {
+        return (nextHeight.get() - currentHeight) * params.PoWTargetSpacing(nextHeight.get() - 1);
+    } else {
+        return boost::none;
+    }
+}
+
 int printStats(bool mining)
 {
     // Number of lines that are always displayed
-    int lines = 4;
+    int lines = 5;
 
     int height;
     int64_t currentHeadersHeight;
     int64_t currentHeadersTime;
     size_t connections;
     int64_t netsolps;
+    const Consensus::Params& params = Params().GetConsensus();
     {
         LOCK2(cs_main, cs_vNodes);
         height = chainActive.Height();
@@ -224,15 +287,33 @@ int printStats(bool mining)
     auto localsolps = GetLocalSolPS();
 
     if (IsInitialBlockDownload(Params())) {
-        int netheight = currentHeadersHeight == -1 || currentHeadersTime == 0 ? 
-            0 : EstimateNetHeight(Params().GetConsensus(), currentHeadersHeight, currentHeadersTime);
-        int downloadPercent = height * 100 / netheight;
-        std::cout << "     " << _("Downloading blocks") << " | " << height << " / ~" << netheight << " (" << downloadPercent << "%)           " << std::endl;
+       if (fReindex) {
+           int downloadPercent = nSizeReindexed * 100 / nFullSizeToReindex;
+           std::cout << "      " << _("Reindexing blocks") << " | " << DisplaySize(nSizeReindexed) << " / " << DisplaySize(nFullSizeToReindex) << " (" << downloadPercent << "%, " << height << " " << _("blocks") << ")" << std::endl;
+       } else {
+           int netheight = currentHeadersHeight == -1 || currentHeadersTime == 0 ?
+               0 : EstimateNetHeight(params, currentHeadersHeight, currentHeadersTime);
+           int downloadPercent = height * 100 / netheight;
+           std::cout << "     " << _("Downloading blocks") << " | " << height << " / ~" << netheight << " (" << downloadPercent << "%)" << std::endl;
+       }
     } else {
-        std::cout << "           " << _("Block height") << " | " << height << "                      " << std::endl;
+        std::cout << "           " << _("Block height") << " | " << height << std::endl;
     }
-    std::cout << "            " << _("Connections") << " | " << connections << "    " << std::endl;
-    std::cout << "  " << _("Network solution rate") << " | " << netsolps << " Sol/s    " << std::endl;
+
+    auto secondsLeft = SecondsLeftToNextEpoch(params, height);
+    std::string strUpgradeTime;
+    if (secondsLeft) {
+        auto nextHeight = NextActivationHeight(height, params).value();
+        auto nextBranch = NextEpoch(height, params).value();
+        strUpgradeTime = strprintf(_("%s at block height %d, in around %s"),
+                                   NetworkUpgradeInfo[nextBranch].strName, nextHeight, DisplayDuration(secondsLeft.value(), DurationFormat::REDUCED));
+    }
+    else {
+        strUpgradeTime = "Unknown";
+    }
+    std::cout << "           " << _("Next upgrade") << " | " << strUpgradeTime << std::endl;
+    std::cout << "            " << _("Connections") << " | " << connections << std::endl;
+    std::cout << "  " << _("Network solution rate") << " | " << netsolps << " Sol/s" << std::endl;
     if (mining && miningTimer.running()) {
         std::cout << "    " << _("Local solution rate") << " | " << strprintf("%.4f Sol/s", localsolps) << std::endl;
         lines++;
@@ -286,24 +367,9 @@ int printMetrics(size_t cols, bool mining)
     // Number of lines that are always displayed
     int lines = 3;
 
-    // Calculate uptime
-    int64_t uptime = GetUptime();
-    int days = uptime / (24 * 60 * 60);
-    int hours = (uptime - (days * 24 * 60 * 60)) / (60 * 60);
-    int minutes = (uptime - (((days * 24) + hours) * 60 * 60)) / 60;
-    int seconds = uptime - (((((days * 24) + hours) * 60) + minutes) * 60);
+    // Calculate and display uptime
+    std::string duration = DisplayDuration(GetUptime(), DurationFormat::FULL);
 
-    // Display uptime
-    std::string duration;
-    if (days > 0) {
-        duration = strprintf(_("%d days, %d hours, %d minutes, %d seconds"), days, hours, minutes, seconds);
-    } else if (hours > 0) {
-        duration = strprintf(_("%d hours, %d minutes, %d seconds"), hours, minutes, seconds);
-    } else if (minutes > 0) {
-        duration = strprintf(_("%d minutes, %d seconds"), minutes, seconds);
-    } else {
-        duration = strprintf(_("%d seconds"), seconds);
-    }
     std::string strDuration = strprintf(_("Since starting this node %s ago:"), duration);
     std::cout << strDuration << std::endl;
     lines += (strDuration.size() / cols);
@@ -339,6 +405,9 @@ int printMetrics(size_t cols, bool mining)
                         chainActive.Contains(mapBlockIndex[hash])) {
                     int height = mapBlockIndex[hash]->nHeight;
                     CAmount subsidy = GetBlockSubsidy(height, consensusParams);
+                    if ((height > 0) && (height <= consensusParams.GetLastFoundersRewardBlockHeight(height))) {
+                        subsidy -= subsidy/5;
+                    }
                     if (std::max(0, COINBASE_MATURITY - (tipHeight - height)) > 0) {
                         immature += subsidy;
                     } else {
@@ -420,14 +489,6 @@ int printInitMessage()
 }
 
 #ifdef WIN32
-void setCursorPosition(int x, int y)
-{
-    static const HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    std::cout.flush();
-    COORD coord = { (SHORT)x, (SHORT)y };
-    SetConsoleCursorPosition(hOut, coord);
-}
-
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
 
 bool enableVTMode()
@@ -454,11 +515,7 @@ bool enableVTMode()
 void ThreadShowMetricsScreen()
 {
     // Make this thread recognisable as the metrics screen thread
-    RenameThread("zcash-metrics-screen");
-
-#ifdef WIN32
-    bool clearedAfterLoaded = false;
-#endif
+    RenameThread("votecoin-metrics-screen");
 
     // Determine whether we should render a persistent UI or rolling metrics
     bool isTTY = isatty(STDOUT_FILENO);
@@ -471,19 +528,19 @@ void ThreadShowMetricsScreen()
 #endif
 
         // Clear screen
-#ifdef WIN32
-        setCursorPosition(0, 0);
-#else
         std::cout << "\e[2J";
-#endif
 
         // Print art
         std::cout << METRICS_ART << std::endl;
         std::cout << std::endl;
 
         // Thank you text
-        std::cout << _("Thank you for running a VoteCoin node!") << std::endl;
+        std::cout << strprintf(_("Thank you for running a %s votecoind v%s node!"), WhichNetwork(), FormatVersion(CLIENT_VERSION)) << std::endl;
         std::cout << _("You're helping to strengthen the network and contributing to a social good :)") << std::endl;
+
+        // Privacy notice text
+        std::cout << PrivacyInfo();
+        std::cout << std::endl;
     }
 
     while (true) {
@@ -508,28 +565,8 @@ void ThreadShowMetricsScreen()
         }
 
         if (isScreen) {
-#ifdef WIN32
-        setCursorPosition(0, 12);
-        if (loaded)
-        {
-           if (!clearedAfterLoaded)
-           {
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              std::cout << std::string(cols, ' ');
-              setCursorPosition(0, 12);
-           }
-           clearedAfterLoaded=true;
-        }
-#else
             // Erase below current position
             std::cout << "\e[J";
-#endif
         }
 
         // Miner status
@@ -569,11 +606,7 @@ void ThreadShowMetricsScreen()
 
         if (isScreen) {
             // Return to the top of the updating section
-#ifdef WIN32
-            setCursorPosition(0, 12);
-#else
             std::cout << "\e[" << lines << "A";
-#endif
         }
     }
 }

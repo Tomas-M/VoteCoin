@@ -89,6 +89,8 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "lockunspent", 1 },
     { "importprivkey", 2 },
     { "importaddress", 2 },
+    { "importaddress", 3 },
+    { "importpubkey", 2 },
     { "verifychain", 0 },
     { "verifychain", 1 },
     { "keypoolrefill", 0 },
@@ -142,6 +144,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "z_getpaymentdisclosure", 1},
     { "z_getpaymentdisclosure", 2},
     { "z_setmigration", 0},
+    { "z_getnotescount", 0},
 };
 
 class CRPCConvertTable

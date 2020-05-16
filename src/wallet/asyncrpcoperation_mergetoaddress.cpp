@@ -8,6 +8,7 @@
 #include "asyncrpcoperation_common.h"
 #include "asyncrpcqueue.h"
 #include "core_io.h"
+#include "experimental_features.h"
 #include "init.h"
 #include "key_io.h"
 #include "main.h"
@@ -116,7 +117,7 @@ AsyncRPCOperation_mergetoaddress::AsyncRPCOperation_mergetoaddress(
     lock_notes();
 
     // Enable payment disclosure if requested
-    paymentDisclosureMode = fExperimentalMode && GetBoolArg("-paymentdisclosure", false);
+    paymentDisclosureMode = fExperimentalPaymentDisclosure;
 }
 
 AsyncRPCOperation_mergetoaddress::~AsyncRPCOperation_mergetoaddress()
@@ -211,20 +212,6 @@ bool AsyncRPCOperation_mergetoaddress::main_impl()
     CAmount minersFee = fee_;
 
     size_t numInputs = utxoInputs_.size();
-
-    // Check mempooltxinputlimit to avoid creating a transaction which the local mempool rejects
-    size_t limit = (size_t)GetArg("-mempooltxinputlimit", 0);
-    {
-        LOCK(cs_main);
-        if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height() + 1, Consensus::UPGRADE_OVERWINTER)) {
-            limit = 0;
-        }
-    }
-    if (limit > 0 && numInputs > limit) {
-        throw JSONRPCError(RPC_WALLET_ERROR,
-                           strprintf("Number of transparent inputs %d is greater than mempooltxinputlimit of %d",
-                                     numInputs, limit));
-    }
 
     CAmount t_inputs_total = 0;
     for (MergeToAddressInputUTXO& t : utxoInputs_) {

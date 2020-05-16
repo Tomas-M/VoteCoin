@@ -1,5 +1,11 @@
+<<<<<<< HEAD
 VoteCoin 2.1.0
 ==============
+=======
+Zcash 2.1.2-3
+<img align="right" width="120" height="80" src="doc/imgs/logo.png">
+===========
+>>>>>>> 2d77cd241ac66f9987084a80273fbb7743b37994
 
 What is VoteCoin?
 -----------------
@@ -162,6 +168,13 @@ Export wallet to a file (dump private keys)
 
 You may need to specify export directory path using for example "exportdir=/tmp" in your ~/.votecoin/votecoin.conf
 
+<<<<<<< HEAD
+=======
+* :blue_book: See the documentation at the [ReadTheDocs](https://zcash.readthedocs.io)
+  for help and more information.
+* :incoming_envelope: Ask for help on the [Zcash](https://forum.z.cash/) forum.
+* :speech_balloon: Chat with our support community on [Discord](https://discordapp.com/channels/669694001464737815/671029188353851393/)
+>>>>>>> 2d77cd241ac66f9987084a80273fbb7743b37994
 
 Shortcut
 --------

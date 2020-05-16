@@ -1,0 +1,10 @@
+/run/media/smc/160F2FS/VoteCoin/target/release/deps/proc_macro2-5e0b6d963afb6559.rmeta: /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/lib.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/strnom.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/fallback.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/wrapper.rs
+
+/run/media/smc/160F2FS/VoteCoin/target/release/deps/libproc_macro2-5e0b6d963afb6559.rlib: /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/lib.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/strnom.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/fallback.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/wrapper.rs
+
+/run/media/smc/160F2FS/VoteCoin/target/release/deps/proc_macro2-5e0b6d963afb6559.d: /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/lib.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/strnom.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/fallback.rs /run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/wrapper.rs
+
+/run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/lib.rs:
+/run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/strnom.rs:
+/run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/fallback.rs:
+/run/media/smc/160F2FS/VoteCoin/depends/x86_64-unknown-linux-gnu/share/../vendored-sources/proc-macro2/src/wrapper.rs:

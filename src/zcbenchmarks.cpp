@@ -17,6 +17,7 @@
 #include "consensus/validation.h"
 #include "main.h"
 #include "miner.h"
+#include "policy/policy.h"
 #include "pow.h"
 #include "rpc/server.h"
 #include "script/sign.h"
@@ -203,7 +204,7 @@ double benchmark_verify_equihash()
     CBlockHeader genesis_header = genesis.GetBlockHeader();
     struct timeval tv_start;
     timer_start(tv_start);
-    CheckEquihashSolution(&genesis_header, params.GetConsensus());
+    assert(CheckEquihashSolution(&genesis_header, 1, params.GetConsensus()));
     return timer_stop(tv_start);
 }
 
@@ -297,7 +298,7 @@ double benchmark_try_decrypt_sapling_notes(size_t nKeys)
 
     for (int i = 0; i < nKeys; i++) {
         auto sk = masterKey.Derive(i);
-        wallet.AddSaplingSpendingKey(sk, sk.DefaultAddress());
+        wallet.AddSaplingSpendingKey(sk);
     }
 
     // Generate a key that has not been added to the wallet
@@ -349,7 +350,7 @@ double benchmark_increment_sprout_note_witnesses(size_t nTxs)
     index1.nHeight = 1;
 
     // Increment to get transactions witnessed
-    wallet.ChainTip(&index1, &block1, sproutTree, saplingTree, true);
+    wallet.ChainTip(&index1, &block1, std::make_pair(sproutTree, saplingTree));
 
     // Second block
     CBlock block2;
@@ -365,7 +366,7 @@ double benchmark_increment_sprout_note_witnesses(size_t nTxs)
 
     struct timeval tv_start;
     timer_start(tv_start);
-    wallet.ChainTip(&index2, &block2, sproutTree, saplingTree, true);
+    wallet.ChainTip(&index2, &block2, std::make_pair(sproutTree, saplingTree));
     return timer_stop(tv_start);
 }
 
@@ -397,7 +398,7 @@ double benchmark_increment_sapling_note_witnesses(size_t nTxs)
     SaplingMerkleTree saplingTree;
 
     auto saplingSpendingKey = GetTestMasterSaplingSpendingKey();
-    wallet.AddSaplingSpendingKey(saplingSpendingKey, saplingSpendingKey.DefaultAddress());
+    wallet.AddSaplingSpendingKey(saplingSpendingKey);
 
     // First block
     CBlock block1;
@@ -411,7 +412,7 @@ double benchmark_increment_sapling_note_witnesses(size_t nTxs)
     index1.nHeight = 1;
 
     // Increment to get transactions witnessed
-    wallet.ChainTip(&index1, &block1, sproutTree, saplingTree, true);
+    wallet.ChainTip(&index1, &block1, std::make_pair(sproutTree, saplingTree));
 
     // Second block
     CBlock block2;
@@ -427,7 +428,7 @@ double benchmark_increment_sapling_note_witnesses(size_t nTxs)
 
     struct timeval tv_start;
     timer_start(tv_start);
-    wallet.ChainTip(&index2, &block2, sproutTree, saplingTree, true);
+    wallet.ChainTip(&index2, &block2, std::make_pair(sproutTree, saplingTree));
     return timer_stop(tv_start);
 }
 
@@ -542,7 +543,7 @@ double benchmark_connectblock_slow()
 
     // Undo alterations to global state
     mapBlockIndex.erase(hashPrev);
-    SelectParamsFromCommandLine();
+    SelectParams(ChainNameFromCommandLine());
 
     return duration;
 }
@@ -595,12 +596,12 @@ double benchmark_create_sapling_spend()
     auto address = sk.default_address();
     SaplingNote note(address, GetRand(MAX_MONEY));
     SaplingMerkleTree tree;
-    auto maybe_cm = note.cm();
-    tree.append(maybe_cm.get());
+    auto maybe_cmu = note.cmu();
+    tree.append(maybe_cmu.get());
     auto anchor = tree.root();
     auto witness = tree.witness();
     auto maybe_nf = note.nullifier(expsk.full_viewing_key(), witness.position());
-    if (!(maybe_cm && maybe_nf)) {
+    if (!(maybe_cmu && maybe_nf)) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Could not create note commitment and nullifier");
     }
 
@@ -656,6 +657,10 @@ double benchmark_create_sapling_output()
     auto enc = res.get();
     auto encryptor = enc.second;
 
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << address;
+    std::vector<unsigned char> addressBytes(ss.begin(), ss.end());
+
     auto ctx = librustzcash_sapling_proving_ctx_init();
 
     struct timeval tv_start;
@@ -665,8 +670,7 @@ double benchmark_create_sapling_output()
     bool result = librustzcash_sapling_output_proof(
         ctx,
         encryptor.get_esk().begin(),
-        note.d.data(),
-        note.pk_d.begin(),
+        addressBytes.data(),
         note.r.begin(),
         note.value(),
         odesc.cv.begin(),
@@ -731,7 +735,7 @@ double benchmark_verify_sapling_output()
     bool result = librustzcash_sapling_check_output(
                 ctx,
                 output.cv.begin(),
-                output.cm.begin(),
+                output.cmu.begin(),
                 output.ephemeralKey.begin(),
                 output.zkproof.begin()
             );

@@ -20,6 +20,7 @@
 #include "util.h"
 #include "utilstrencodings.h"
 #include "utiltest.h"
+#include "warnings.h"
 
 #include "test/test_bitcoin.h"
 
@@ -174,6 +175,14 @@ void GenerateAlertTests()
     alert.strStatusBar  = "Alert 1 for MagicBean 0.1.0, 0.2.0";
     SignAndSerialize(alert, sBuffer);
 
+    alert.setSubVer.insert(std::string("/MagicBean:0.2.1(foo)/"));
+    alert.strStatusBar  = "Alert 1 for MagicBean 0.1.0, 0.2.0, 0.2.1(foo)";
+    SignAndSerialize(alert, sBuffer);
+
+    alert.setSubVer.insert(std::string("/MagicBean:0.2.1/"));
+    alert.strStatusBar  = "Alert 1 for MagicBean 0.1.0, 0.2.0, 0.2.1(foo), 0.2.1";
+    SignAndSerialize(alert, sBuffer);
+
     alert.setSubVer.clear();
     ++alert.nID;
     alert.nCancel = 1;
@@ -303,6 +312,18 @@ BOOST_AUTO_TEST_CASE(AlertApplies)
 
     BOOST_CHECK(alerts[2].AppliesTo(1, "/MagicBean:0.1.0/"));
     BOOST_CHECK(alerts[2].AppliesTo(1, "/MagicBean:0.2.0/"));
+    BOOST_CHECK(alerts[2].AppliesTo(1, "/MagicBean:0.2.0(foo)/"));
+    BOOST_CHECK(alerts[2].AppliesTo(1, "/MagicBean:0.2.0(bar)/"));
+
+    BOOST_CHECK(alerts[3].AppliesTo(1, "/MagicBean:0.1.0/"));
+    BOOST_CHECK(alerts[3].AppliesTo(1, "/MagicBean:0.2.0/"));
+    BOOST_CHECK(alerts[2].AppliesTo(1, "/MagicBean:0.2.0(foo)/"));
+    BOOST_CHECK(alerts[3].AppliesTo(1, "/MagicBean:0.2.1(foo)/"));
+
+    BOOST_CHECK(alerts[4].AppliesTo(1, "/MagicBean:0.1.0/"));
+    BOOST_CHECK(alerts[4].AppliesTo(1, "/MagicBean:0.2.0/"));
+    BOOST_CHECK(alerts[4].AppliesTo(1, "/MagicBean:0.2.1(foo)/"));
+    BOOST_CHECK(alerts[4].AppliesTo(1, "/MagicBean:0.2.1/"));
 
     // Don't match:
     BOOST_CHECK(!alerts[0].AppliesTo(-1, ""));
@@ -314,9 +335,15 @@ BOOST_AUTO_TEST_CASE(AlertApplies)
     BOOST_CHECK(!alerts[1].AppliesTo(1, "MagicBean:0.1.0/"));
     BOOST_CHECK(!alerts[1].AppliesTo(-1, "/MagicBean:0.1.0/"));
     BOOST_CHECK(!alerts[1].AppliesTo(999002, "/MagicBean:0.1.0/"));
+    BOOST_CHECK(!alerts[1].AppliesTo(1, "/MagicBean:0.1.0/FlowerPot:0.0.1/"));
     BOOST_CHECK(!alerts[1].AppliesTo(1, "/MagicBean:0.2.0/"));
 
+    // SubVer with comment doesn't match SubVer pattern without
+    BOOST_CHECK(!alerts[2].AppliesTo(1, "/MagicBean:0.2.1/"));
     BOOST_CHECK(!alerts[2].AppliesTo(1, "/MagicBean:0.3.0/"));
+
+    // SubVer without comment doesn't match SubVer pattern with
+    BOOST_CHECK(!alerts[3].AppliesTo(1, "/MagicBean:0.2.1/"));
 
     SetMockTime(0);
 }
@@ -371,13 +398,13 @@ BOOST_AUTO_TEST_CASE(AlertDisablesRPC)
     BOOST_CHECK_EQUAL(GetWarnings("rpc"), "");
 
     // First alert should disable RPC
-    alerts[5].ProcessAlert(alertKey, false);
-    BOOST_CHECK_EQUAL(alerts[5].strRPCError, "RPC disabled");
+    alerts[7].ProcessAlert(alertKey, false);
+    BOOST_CHECK_EQUAL(alerts[7].strRPCError, "RPC disabled");
     BOOST_CHECK_EQUAL(GetWarnings("rpc"), "RPC disabled");
 
     // Second alert should re-enable RPC
-    alerts[6].ProcessAlert(alertKey, false);
-    BOOST_CHECK_EQUAL(alerts[6].strRPCError, "");
+    alerts[8].ProcessAlert(alertKey, false);
+    BOOST_CHECK_EQUAL(alerts[8].strRPCError, "");
     BOOST_CHECK_EQUAL(GetWarnings("rpc"), "");
 
     SetMockTime(0);
@@ -409,26 +436,26 @@ void PartitionAlertTestImpl(const Consensus::Params& params, int startTime, int 
 
     // Test 1: chain with blocks every nPowTargetSpacing seconds,
     // as normal, no worries:
-    strMiscWarning = "";
+    SetMiscWarning("");
     PartitionCheck(falseFunc, csDummy, &indexDummy[799]);
-    BOOST_CHECK_EQUAL("", strMiscWarning);
+    BOOST_CHECK_EQUAL("", GetMiscWarning());
 
     // Test 2: go 3.5 hours without a block, expect a warning:
     now += 3*60*60+30*60;
     SetMockTime(now);
-    strMiscWarning = "";
+    SetMiscWarning("");
     PartitionCheck(falseFunc, csDummy, &indexDummy[799]);
     std::string expectedSlowErr = strprintf("WARNING: check your network connection, %d blocks received in the last 4 hours (%d expected)", expectedSlow, expectedTotal);
-    BOOST_CHECK_EQUAL(expectedSlowErr, strMiscWarning);
-    BOOST_TEST_MESSAGE(std::string("Got alert text: ")+strMiscWarning);
+    BOOST_CHECK_EQUAL(expectedSlowErr, GetMiscWarning());
+    BOOST_TEST_MESSAGE(std::string("Got alert text: ")+GetMiscWarning());
 
     // Test 3: test the "partition alerts only go off once per day"
     // code:
     now += 60*10;
     SetMockTime(now);
-    strMiscWarning = "";
+    SetMiscWarning("");
     PartitionCheck(falseFunc, csDummy, &indexDummy[799]);
-    BOOST_CHECK_EQUAL("", strMiscWarning);
+    BOOST_CHECK_EQUAL("", GetMiscWarning());
 
     // Test 4: get 2.5 times as many blocks as expected:
     start = now + 60*60*24; // Pretend it is a day later
@@ -439,12 +466,12 @@ void PartitionAlertTestImpl(const Consensus::Params& params, int startTime, int 
     now = indexDummy[799].nTime + params.PoWTargetSpacing(0) * 2/5;
     SetMockTime(now);
 
-    strMiscWarning = "";
+    SetMiscWarning("");
     PartitionCheck(falseFunc, csDummy, &indexDummy[799]);
     std::string expectedFastErr = strprintf("WARNING: abnormally high number of blocks generated, %d blocks received in the last 4 hours (%d expected)", expectedFast, expectedTotal);
-    BOOST_CHECK_EQUAL(expectedFastErr, strMiscWarning);
-    BOOST_TEST_MESSAGE(std::string("Got alert text: ")+strMiscWarning);
-    strMiscWarning = "";
+    BOOST_CHECK_EQUAL(expectedFastErr, GetMiscWarning());
+    BOOST_TEST_MESSAGE(std::string("Got alert text: ")+GetMiscWarning());
+    SetMiscWarning("");
 
     SetMockTime(0);
 }

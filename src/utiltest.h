@@ -7,10 +7,10 @@
 
 #include "key_io.h"
 #include "wallet/wallet.h"
+#include "zcash/Address.hpp"
 #include "zcash/JoinSplit.hpp"
 #include "zcash/Note.hpp"
 #include "zcash/NoteEncryption.hpp"
-#include "zcash/zip32.h"
 
 // Sprout
 CWalletTx GetValidSproutReceive(ZCJoinSplit& params,
@@ -48,6 +48,14 @@ void RegtestDeactivateSapling();
 const Consensus::Params& RegtestActivateBlossom(bool updatePow, int blossomActivationHeight = Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
 
 void RegtestDeactivateBlossom();
+
+const Consensus::Params& RegtestActivateHeartwood(bool updatePow, int heartwoodActivationHeight = Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+
+void RegtestDeactivateHeartwood();
+
+const Consensus::Params& RegtestActivateNU4(bool updatePow, int nu4ActivationHeight = Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+
+void RegtestDeactivateNU4();
 
 libzcash::SaplingExtendedSpendingKey GetTestMasterSaplingSpendingKey();
 

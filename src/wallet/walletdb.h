@@ -11,13 +11,14 @@
 #include "key.h"
 #include "keystore.h"
 #include "zcash/Address.hpp"
-#include "zcash/zip32.h"
 
 #include <list>
 #include <stdint.h>
 #include <string>
 #include <utility>
 #include <vector>
+
+static const bool DEFAULT_FLUSHWALLET = true;
 
 class CAccount;
 class CAccountingEntry;
@@ -117,7 +118,7 @@ public:
     }
 };
 
-/** Access to the wallet database (wallet.dat) */
+/** Access to the wallet database */
 class CWalletDB : public CDB
 {
 public:
@@ -199,6 +200,8 @@ public:
 
     bool WriteSproutViewingKey(const libzcash::SproutViewingKey &vk);
     bool EraseSproutViewingKey(const libzcash::SproutViewingKey &vk);
+    bool WriteSaplingExtendedFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk);
+    bool EraseSaplingExtendedFullViewingKey(const libzcash::SaplingExtendedFullViewingKey &extfvk);
 
 private:
     CWalletDB(const CWalletDB&);

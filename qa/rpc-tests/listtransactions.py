@@ -1,11 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2014 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
 # Exercise the listtransactions API
-
-import sys; assert sys.version_info < (3,), ur"This script does not run under Python 3. Please use Python 2.7.x."
 
 from test_framework.test_framework import BitcoinTestFramework
 
@@ -94,6 +92,16 @@ class ListTransactionsTest(BitcoinTestFramework):
         check_array_result(self.nodes[1].listtransactions(),
                            {"category":"receive","amount":Decimal("0.44")},
                            {"txid":txid, "account" : ""} )
+
+        multisig = self.nodes[1].createmultisig(1, [self.nodes[1].getnewaddress()])
+        self.nodes[0].importaddress(multisig["redeemScript"], "watchonly", False, True)
+        txid = self.nodes[1].sendtoaddress(multisig["address"], 0.1)
+        self.nodes[1].generate(1)
+        self.sync_all()
+        assert(len(self.nodes[0].listtransactions("watchonly", 100, 0, False)) == 0)
+        check_array_result(self.nodes[0].listtransactions("watchonly", 100, 0, True),
+                           {"category":"receive","amount":Decimal("0.1")},
+                           {"txid":txid, "account" : "watchonly"} )
 
 if __name__ == '__main__':
     ListTransactionsTest().main()
